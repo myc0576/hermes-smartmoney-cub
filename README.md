@@ -45,11 +45,15 @@ enforces the reporting rules. Load it with `skill_view("smartmoney-cub:smartmone
 - The harness CLI on your `PATH`:
 
   ```bash
-  pip install smartmoney-cub-harness
+  git clone https://github.com/myc0576/SmartMoney-Cub.git
+  cd SmartMoney-Cub
+  python -m pip install -e ".[dev]"
   smcub doctor
   ```
 
-  Set `smcub_command` in the plugin settings if it lives somewhere else.
+  The harness is not published on PyPI; install it from source or from the wheel
+  attached to its GitHub Releases. Set `smcub_command` in the plugin settings if
+  the executable lives somewhere else.
 
 ## Install
 
