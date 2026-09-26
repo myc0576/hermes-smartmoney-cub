@@ -1,0 +1,30 @@
+name: smartmoney-cub
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+license: MIT
+homepage: https://github.com/myc0576/SmartMoney-Cub
+description: >-
+  Read-only trading-journal and review harness. Wraps the local smcub CLI to
+  validate run envelopes, build and replay evidence packs, evaluate a run
+  directory, and report harness health. Offline-first: no orders, no cancels,
+  no broker connection, no financial advice.
+author: myc0576
+tags: [trading, review, journal, evidence, offline, read-only]
+provides_tools:
+  - smcub_doctor
+  - smcub_validate_envelope
+  - smcub_build_evidence_pack
+  - smcub_replay_evidence_pack
+  - smcub_evaluate_run
+  - smcub_inspect_artifacts
+provides_hooks: []
+config_schema:
+  smcub_command:
+    type: str
+    default: smcub
+    description: Command used to invoke the harness (override if it is not on PATH).
+  timeout_seconds:
+    type: int
+    default: 120
+    description: Per-invocation timeout for smcub subprocesses.
