@@ -5,11 +5,13 @@ api_version: 1
 license: MIT
 homepage: https://github.com/myc0576/SmartMoney-Cub
 description: >-
-  Read-only trading-journal and review harness. Wraps the local smcub CLI to
+  No-trading journal and review harness. Wraps the local smcub CLI to
   validate run envelopes, build and replay evidence packs, evaluate a run
   directory, and report harness health. Offline-first no-trading: no orders, no
-  cancels, no broker connection, no financial advice. Restricted filesystem
-  writes are limited to the configured run_root.
+  cancels, no broker connection, no financial advice.
+  READ_ONLY_NO_ORDER_NO_CANCEL_NO_TRADE. evaluate-run writes eval.json in the
+  run directory; build-evidence-pack creates files in output_dir. Both writes
+  are confined to configured run_root; path-sensitive tools fail closed without it.
 author: myc0576
 tags: [trading, review, journal, evidence, offline, read-only]
 provides_tools:
