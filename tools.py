@@ -7,12 +7,14 @@ Design rules enforced here:
 - no handler places or cancels an order, opens a broker connection, fetches
   the network, or produces financial advice. The subprocess is the local
   read-only harness and its output is passed through unchanged.
+- path-sensitive tools fail closed unless run_root is configured. Every input
+  and output path is checked after filesystem resolution so symlinks and parent
+  traversal cannot escape that root.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -43,19 +45,81 @@ def _timeout(ctx_config: dict[str, Any]) -> int:
     return max(5, min(value, 3600))
 
 
-def _containment_warning(ctx_config: dict[str, Any], path: Path) -> str | None:
-    root = str(ctx_config.get("run_root") or "").strip()
-    if not root:
-        return None
+def _resolve_root(ctx_config: dict[str, Any]) -> tuple[Path | None, str | None]:
+    """Resolve the configured root, refusing an absent or non-directory root."""
+    raw = str(ctx_config.get("run_root") or "").strip()
+    if not raw:
+        return None, "run_root must be configured for this path-sensitive tool"
     try:
-        resolved_root = Path(root).expanduser().resolve()
-        resolved_path = path.expanduser().resolve()
-        resolved_path.relative_to(resolved_root)
-    except ValueError:
-        return f"path is outside the configured run_root {resolved_root}"
+        root = Path(raw).expanduser().resolve(strict=True)
     except OSError as exc:
-        return f"could not resolve path against run_root: {exc}"
-    return None
+        return None, f"run_root cannot be resolved: {exc}"
+    if not root.is_dir():
+        return None, f"run_root is not a directory: {root}"
+    return root, None
+
+
+def _relative_to_root(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _resolve_existing_under_root(
+    ctx_config: dict[str, Any], path: Path, *, kind: str
+) -> tuple[Path | None, str | None]:
+    """Validate an existing file or directory, including symlink containment."""
+    root, failure = _resolve_root(ctx_config)
+    if failure:
+        return None, failure
+    assert root is not None
+    try:
+        resolved = path.expanduser().resolve(strict=True)
+    except FileNotFoundError:
+        return None, f"path does not exist: {path}"
+    except OSError as exc:
+        return None, f"could not resolve path: {exc}"
+    if not _relative_to_root(resolved, root):
+        return None, f"path is outside the configured run_root: {path}"
+    if kind == "directory" and not resolved.is_dir():
+        return None, f"path is not a directory: {path}"
+    if kind == "file" and not resolved.is_file():
+        return None, f"path is not a file: {path}"
+    return resolved, None
+
+
+def _resolve_output_under_root(
+    ctx_config: dict[str, Any], path: Path
+) -> tuple[Path | None, str | None]:
+    """Validate an output directory, allowing a new directory below root."""
+    root, failure = _resolve_root(ctx_config)
+    if failure:
+        return None, failure
+    assert root is not None
+    candidate = path.expanduser()
+    try:
+        resolved = candidate.resolve(strict=False)
+    except OSError as exc:
+        return None, f"could not resolve output directory: {exc}"
+    if not _relative_to_root(resolved, root):
+        return None, f"output directory is outside the configured run_root: {path}"
+
+    existing = candidate
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    try:
+        existing_resolved = existing.resolve(strict=True)
+    except OSError as exc:
+        return None, f"could not resolve output parent: {exc}"
+    if not existing_resolved.is_dir():
+        return None, f"output parent is not a directory: {existing}"
+    if not _relative_to_root(existing_resolved, root):
+        return None, f"output directory is outside the configured run_root: {path}"
+    if candidate.exists() and not resolved.is_dir():
+        return None, f"output path is not a directory: {path}"
+    return resolved, None
 
 
 def _run(ctx_config: dict[str, Any], argv: list[str]) -> tuple[int, str, str]:
@@ -106,14 +170,7 @@ def _require_path(args: dict[str, Any], key: str) -> tuple[Path | None, str | No
     if not raw:
         return None, f"missing required argument: {key}"
     path = Path(raw).expanduser()
-    if not path.exists():
-        return None, f"path does not exist: {path}"
     return path, None
-
-
-def _guard(ctx_config: dict[str, Any], path: Path) -> str | None:
-    warning = _containment_warning(ctx_config, path)
-    return warning
 
 
 def smcub_doctor(args: dict[str, Any], **kwargs: Any) -> str:
@@ -123,51 +180,107 @@ def smcub_doctor(args: dict[str, Any], **kwargs: Any) -> str:
     return _payload(returncode, stdout, stderr, argv)
 
 
-def _path_tool(args, kwargs, key, argv_for):
+def _path_tool(args, kwargs, key, argv_for, *, kind: str):
     ctx_config = kwargs.get("config") or {}
     path, failure = _require_path(args, key)
     if failure:
         return _error(failure)
-    warning = _guard(ctx_config, path)
-    argv = argv_for(str(path))
+    assert path is not None
+    checked, failure = _resolve_existing_under_root(ctx_config, path, kind=kind)
+    if failure:
+        return _error(failure)
+    assert checked is not None
+    argv = argv_for(str(checked))
     returncode, stdout, stderr = _run(ctx_config, argv)
-    payload = _payload(returncode, stdout, stderr, argv)
-    if warning:
-        data = json.loads(payload)
-        data["containment_warning"] = warning
-        payload = json.dumps(data, ensure_ascii=False)
-    return payload
+    return _payload(returncode, stdout, stderr, argv)
 
 
 def smcub_validate_envelope(args: dict[str, Any], **kwargs: Any) -> str:
-    return _path_tool(args, kwargs, "envelope_path", lambda p: ["validate-envelope", p])
+    return _path_tool(
+        args,
+        kwargs,
+        "envelope_path",
+        lambda p: ["validate-envelope", "--", p],
+        kind="file",
+    )
 
 
 def smcub_replay_evidence_pack(args: dict[str, Any], **kwargs: Any) -> str:
-    return _path_tool(args, kwargs, "pack_dir", lambda p: ["replay-evidence-pack", p])
+    return _path_tool(
+        args,
+        kwargs,
+        "pack_dir",
+        lambda p: ["replay-evidence-pack", "--", p],
+        kind="directory",
+    )
 
 
 def smcub_inspect_artifacts(args: dict[str, Any], **kwargs: Any) -> str:
-    return _path_tool(args, kwargs, "run_dir", lambda p: ["inspect-artifacts", p])
-
-
-def smcub_evaluate_run(args: dict[str, Any], **kwargs: Any) -> str:
-    horizon = str(args.get("horizon") or "d1").strip() or "d1"
     return _path_tool(
         args,
         kwargs,
         "run_dir",
-        lambda p: ["evaluate-run", p, "--horizon", horizon],
+        lambda p: ["inspect-artifacts", "--", p],
+        kind="directory",
+    )
+
+
+def smcub_evaluate_run(args: dict[str, Any], **kwargs: Any) -> str:
+    horizon = str(args.get("horizon") or "d1").strip()
+    if horizon not in {"d1", "d3"}:
+        return _error("horizon must be one of: d1, d3")
+    return _path_tool(
+        args,
+        kwargs,
+        "run_dir",
+        lambda p: ["evaluate-run", "--horizon", horizon, "--", p],
+        kind="directory",
     )
 
 
 def smcub_build_evidence_pack(args: dict[str, Any], **kwargs: Any) -> str:
-    output_dir = str(args.get("output_dir") or "").strip()
+    ctx_config = kwargs.get("config") or {}
+    run_dir, failure = _require_path(args, "run_dir")
+    if failure:
+        return _error(failure)
+    output_raw = str(args.get("output_dir") or "").strip()
+    if not output_raw:
+        return _error("missing required argument: output_dir")
+    rule_raw = str(args.get("rule_candidate") or "").strip()
+    if not rule_raw:
+        return _error("missing required argument: rule_candidate")
+    horizon = str(args.get("horizon") or "d1").strip()
+    if horizon not in {"d1", "d3"}:
+        return _error("horizon must be one of: d1, d3")
 
-    def argv_for(path: str) -> list[str]:
-        argv = ["build-evidence-pack", path]
-        if output_dir:
-            argv.extend(["--output-dir", output_dir])
-        return argv
-
-    return _path_tool(args, kwargs, "run_dir", argv_for)
+    assert run_dir is not None
+    checked_run, failure = _resolve_existing_under_root(
+        ctx_config, run_dir, kind="directory"
+    )
+    if failure:
+        return _error(failure)
+    rule_candidate = Path(rule_raw).expanduser()
+    checked_rule, failure = _resolve_existing_under_root(
+        ctx_config, rule_candidate, kind="file"
+    )
+    if failure:
+        return _error(failure)
+    assert checked_rule is not None
+    if checked_rule.suffix.lower() != ".json":
+        return _error("rule_candidate must be a JSON file")
+    checked_output, failure = _resolve_output_under_root(
+        ctx_config, Path(output_raw)
+    )
+    if failure:
+        return _error(failure)
+    assert checked_run is not None and checked_output is not None
+    argv = [
+        "build-evidence-pack",
+        f"--sample={checked_run}",
+        f"--rule-candidate={checked_rule}",
+        f"--horizon={horizon}",
+        "--",
+        str(checked_output),
+    ]
+    returncode, stdout, stderr = _run(ctx_config, argv)
+    return _payload(returncode, stdout, stderr, argv)

@@ -3,7 +3,9 @@
 SAFETY_NOTE = (
     "Read-only review only. This tool never places or cancels an order, never "
     "connects to a broker, and never returns financial advice. Its output is "
-    "evidence for a human to review."
+    "evidence for a human to review. Filesystem writes are limited to the "
+    "configured run_root where explicitly stated. "
+    "READ_ONLY_NO_ORDER_NO_CANCEL_NO_TRADE"
 )
 
 DOCTOR = {
@@ -41,8 +43,9 @@ BUILD_EVIDENCE_PACK = {
     "name": "smcub_build_evidence_pack",
     "description": (
         "Build a frozen, hashed evidence pack from a run directory plus delayed "
-        "outcome data. The pack is the artifact a human reviews. Use this when the "
-        "user wants a reproducible record of a completed review run. "
+        "outcome data. The pack is the artifact a human reviews. SmartMoney-Cub "
+        "creates the evidence pack in output_dir. Use this when the user wants a "
+        "reproducible record of a completed review run. "
         + SAFETY_NOTE
     ),
     "parameters": {
@@ -54,10 +57,20 @@ BUILD_EVIDENCE_PACK = {
             },
             "output_dir": {
                 "type": "string",
-                "description": "Optional directory to write the pack into.",
+                "description": "Required directory below configured run_root where the pack will be created.",
+            },
+            "rule_candidate": {
+                "type": "string",
+                "description": "Required existing JSON rule candidate below configured run_root.",
+            },
+            "horizon": {
+                "type": "string",
+                "enum": ["d1", "d3"],
+                "default": "d1",
+                "description": "Outcome horizon to include in the pack.",
             },
         },
-        "required": ["run_dir"],
+        "required": ["run_dir", "output_dir", "rule_candidate"],
     },
 }
 
@@ -84,9 +97,10 @@ REPLAY_EVIDENCE_PACK = {
 EVALUATE_RUN = {
     "name": "smcub_evaluate_run",
     "description": (
-        "Evaluate one run directory against its recorded outcome and write eval.json. "
-        "Use this to grade a single decision record after outcome data exists. A "
-        "grade is a review artifact, not a trading instruction. "
+        "Evaluate one run directory against its recorded outcome. SmartMoney-Cub "
+        "writes eval.json in the run directory. Use this to grade a single "
+        "decision record after outcome data exists. A grade is a review artifact, "
+        "not a trading instruction. "
         + SAFETY_NOTE
     ),
     "parameters": {
@@ -98,8 +112,9 @@ EVALUATE_RUN = {
             },
             "horizon": {
                 "type": "string",
-                "description": "Outcome horizon to read, for example d1 or d3.",
+                "enum": ["d1", "d3"],
                 "default": "d1",
+                "description": "Outcome horizon to read.",
             },
         },
         "required": ["run_dir"],

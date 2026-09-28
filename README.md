@@ -31,9 +31,9 @@ as one.
 | --- | --- |
 | `smcub_doctor` | Report harness health, version, and the safety declaration. |
 | `smcub_validate_envelope` | Validate a `run_envelope.json` against the schema. |
-| `smcub_build_evidence_pack` | Freeze a run plus delayed outcome into a hashed pack. |
+| `smcub_build_evidence_pack` | Freeze a run plus delayed outcome into a hashed pack under `output_dir`. |
 | `smcub_replay_evidence_pack` | Recompute a pack and compare against its hashes. |
-| `smcub_evaluate_run` | Grade one run directory against its recorded outcome. |
+| `smcub_evaluate_run` | Grade one run directory and write `eval.json` there. |
 | `smcub_inspect_artifacts` | Report promotion readiness and the honest sample count. |
 
 A bundled skill, `smartmoney-review`, walks the agent through the full loop and
@@ -70,7 +70,22 @@ Or copy the directory into `~/.hermes/plugins/smartmoney-cub/`.
 | --- | --- | --- |
 | `smcub_command` | `smcub` | Command used to invoke the harness. |
 | `timeout_seconds` | `120` | Per-invocation timeout. |
-| `run_root` | empty | Optional directory that run and pack paths must live under. Empty means the plugin only warns when a path escapes. |
+| `run_root` | empty | Required for every path-sensitive tool. Existing inputs and output directories must resolve inside this directory. smcub_doctor does not need it. |
+
+Path-sensitive tools fail closed when run_root is empty or when a resolved
+path escapes it. A new output_dir is allowed only when its nearest existing
+parent is inside run_root; symlink escapes, missing rule candidates, and
+file paths used as directories are rejected.
+
+## Tool arguments
+
+smcub_validate_envelope, smcub_replay_evidence_pack, and smcub_inspect_artifacts
+take an existing path below run_root. smcub_evaluate_run requires run_dir and
+horizon (d1 or d3) and writes eval.json in that run directory.
+
+smcub_build_evidence_pack requires run_dir, output_dir, rule_candidate, and
+horizon (d1 or d3). The rule candidate must be an existing JSON file below
+run_root; SmartMoney-Cub creates the evidence pack in output_dir.
 
 ## Safety notes
 
@@ -79,15 +94,22 @@ never be interpreted as a command. Every handler returns a JSON string and never
 raises; a missing path, a missing CLI, and a timeout all come back as explicit
 errors rather than a silent empty success.
 
-`build-evidence-pack` and `evaluate-run` write inside the run directory you name,
-which is what the harness already does. Nothing is written outside it. The plugin
-makes no network calls of its own.
+evaluate-run writes eval.json in the configured run directory.
+build-evidence-pack creates the evidence pack in the configured output_dir.
+These are the only writes initiated through this plugin, and both locations are
+restricted to run_root. The plugin makes no network calls of its own.
+
+All tool responses preserve:
+
+```text
+READ_ONLY_NO_ORDER_NO_CANCEL_NO_TRADE
+```
 
 ## Development
 
 ```bash
-python3 -m pytest tests/ -q          # 11 tests, stub CLI, no network
-python3 scripts/check_surface.py     # declared vs registered tools, 6/6
+python3 -m pytest tests/ -q          # stub CLI, no network
+python3 scripts/check_surface.py     # declared vs registered tools
 ```
 
 `tests/` uses a stub `smcub` so it proves the contract without the real harness

@@ -1,5 +1,5 @@
 name: smartmoney-cub
-version: 0.1.0
+version: 0.1.1
 manifest_version: 2
 api_version: 1
 license: MIT
@@ -7,8 +7,9 @@ homepage: https://github.com/myc0576/SmartMoney-Cub
 description: >-
   Read-only trading-journal and review harness. Wraps the local smcub CLI to
   validate run envelopes, build and replay evidence packs, evaluate a run
-  directory, and report harness health. Offline-first: no orders, no cancels,
-  no broker connection, no financial advice.
+  directory, and report harness health. Offline-first no-trading: no orders, no
+  cancels, no broker connection, no financial advice. Restricted filesystem
+  writes are limited to the configured run_root.
 author: myc0576
 tags: [trading, review, journal, evidence, offline, read-only]
 provides_tools:
@@ -28,3 +29,10 @@ config_schema:
     type: int
     default: 120
     description: Per-invocation timeout for smcub subprocesses.
+  run_root:
+    type: str
+    default: ""
+    description: >-
+      Required non-empty directory root for every path-sensitive tool. Existing
+      inputs and output directories must remain inside this root after resolving
+      symlinks; smcub_doctor does not require it.

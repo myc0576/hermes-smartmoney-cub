@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-smartmoney-cub"
-version = "0.1.0"
+version = "0.1.1"
 description = "Hermes Agent plugin exposing the read-only SmartMoney-Cub trading review harness"
 readme = "README.md"
 requires-python = ">=3.10"
